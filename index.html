@@ -1,777 +1,467 @@
-<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Controle de Matérias Estudadas</title>
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { saveAs } from "file-saver";
+import * as XLSX from "xlsx";
 
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            padding: 20px;
-        }
+// ---- Tipos ----
+type Status = "Pendente" | "Em andamento" | "Concluído";
 
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
-        }
+type Registro = {
+  id: string;
+  data: string; // ISO yyyy-mm-dd
+  materia: string;
+  topico: string;
+  horas: number;
+  status: Status;
+  notas?: string;
+};
 
-        .header {
-            background: white;
-            border-radius: 15px;
-            padding: 30px;
-            margin-bottom: 30px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
+// ---- Utilidades ----
+const STORAGE_KEY = "controle-estudos-registros@v1";
 
-        .header h1 {
-            color: #333;
-            display: flex;
-            align-items: center;
-            gap: 15px;
-        }
+function uid() {
+  return Math.random().toString(36).slice(2) + Date.now().toString(36);
+}
 
-        .logo {
-            width: 40px;
-            height: 40px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            border-radius: 8px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 24px;
-        }
+function parseNumber(n: any, fallback = 0) {
+  const v = typeof n === "string" ? n.replace(",", ".") : n;
+  const num = Number(v);
+  return Number.isFinite(num) ? num : fallback;
+}
 
-        .stats {
-            display: flex;
-            gap: 30px;
-        }
+function toDateInputValue(d?: Date) {
+  const dt = d ?? new Date();
+  const tzOffset = dt.getTimezoneOffset();
+  const local = new Date(dt.getTime() - tzOffset * 60000);
+  return local.toISOString().slice(0, 10);
+}
 
-        .stat-card {
-            text-align: center;
-        }
+function normalizeHeader(h: string) {
+  return h
+    .toLowerCase()
+    .trim()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+}
 
-        .stat-number {
-            font-size: 32px;
-            font-weight: bold;
-            color: #667eea;
-        }
+const HEADER_MAP: Record<string, keyof Registro> = {
+  data: "data",
+  date: "data",
+  "data de estudo": "data",
+  materia: "materia",
+  disciplina: "materia",
+  assunto: "materia",
+  topico: "topico",
+  tema: "topico",
+  horas: "horas",
+  "tempo (h)": "horas",
+  tempo: "horas",
+  status: "status",
+  notas: "notas",
+  observacoes: "notas",
+  comentarios: "notas",
+};
 
-        .stat-label {
-            font-size: 12px;
-            color: #999;
-            text-transform: uppercase;
-            margin-top: 5px;
-        }
+// ---- Componente Principal ----
+export default function App() {
+  const [registros, setRegistros] = useState<Registro[]>([]);
+  const [busca, setBusca] = useState("");
+  const [statusFiltro, setStatusFiltro] = useState<"Todos" | Status>("Todos");
+  const [de, setDe] = useState<string>("");
+  const [ate, setAte] = useState<string>("");
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-        .main-content {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 30px;
-        }
+  // Carregar do LocalStorage
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw) as Registro[];
+        setRegistros(parsed);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  }, []);
 
-        .card {
-            background: white;
-            border-radius: 15px;
-            padding: 25px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
-        }
+  // Salvar no LocalStorage
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(registros));
+  }, [registros]);
 
-        .card-title {
-            font-size: 18px;
-            color: #333;
-            margin-bottom: 20px;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
+  const totalHoras = useMemo(
+    () => registros.reduce((acc, r) => acc + (Number(r.horas) || 0), 0),
+    [registros]
+  );
 
-        .form-section {
-            margin-bottom: 25px;
-        }
+  const filtrados = useMemo(() => {
+    return registros.filter((r) => {
+      const withinText =
+        !busca ||
+        [r.materia, r.topico, r.notas].some((f) =>
+          (f ?? "").toLowerCase().includes(busca.toLowerCase())
+        );
 
-        .form-section h3 {
-            font-size: 14px;
-            color: #666;
-            margin-bottom: 15px;
-            padding-bottom: 10px;
-            border-bottom: 1px solid #eee;
-        }
+      const withinStatus = statusFiltro === "Todos" || r.status === statusFiltro;
 
-        .form-group {
-            margin-bottom: 15px;
-        }
+      const withinDate = (() => {
+        const d = de ? new Date(de) : null;
+        const a = ate ? new Date(ate) : null;
+        const cur = new Date(r.data);
+        if (d && cur < new Date(d.toDateString())) return false;
+        if (a && cur > new Date(a.toDateString())) return false;
+        return true;
+      })();
 
-        .form-group label {
-            display: block;
-            font-size: 12px;
-            color: #666;
-            margin-bottom: 5px;
-        }
+      return withinText && withinStatus && withinDate;
+    });
+  }, [registros, busca, statusFiltro, de, ate]);
 
-        .form-group input,
-        .form-group select,
-        .form-group textarea {
-            width: 100%;
-            padding: 10px;
-            border: 1px solid #ddd;
-            border-radius: 8px;
-            font-size: 14px;
-            transition: all 0.3s;
-        }
+  function adicionarVazio() {
+    setRegistros((prev) => [
+      {
+        id: uid(),
+        data: toDateInputValue(new Date()),
+        materia: "",
+        topico: "",
+        horas: 0,
+        status: "Pendente",
+        notas: "",
+      },
+      ...prev,
+    ]);
+  }
 
-        .form-group input:focus,
-        .form-group select:focus,
-        .form-group textarea:focus {
-            outline: none;
-            border-color: #667eea;
-            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
-        }
+  function atualizar(id: string, patch: Partial<Registro>) {
+    setRegistros((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+  }
 
-        .form-row {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 15px;
-        }
+  function remover(id: string) {
+    setRegistros((prev) => prev.filter((r) => r.id !== id));
+  }
 
-        .btn {
-            padding: 12px 24px;
-            border: none;
-            border-radius: 8px;
-            font-size: 14px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.3s;
-        }
+  function limparTudo() {
+    if (confirm("Tem certeza que deseja apagar todos os registros locais?")) {
+      setRegistros([]);
+    }
+  }
 
-        .btn-primary {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-        }
+  // ---- Importar (XLSX/CSV/JSON) ----
+  async function onImportFile(file: File) {
+    const ext = file.name.split(".").pop()?.toLowerCase();
+    if (ext === "json") {
+      const text = await file.text();
+      const data = JSON.parse(text);
+      const parsed = (Array.isArray(data) ? data : data?.registros || []).map(
+        (row: any) => toRegistro(row)
+      );
+      mergeImported(parsed);
+      return;
+    }
 
-        .btn-primary:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
-        }
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf);
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json<any>(ws, { defval: "" });
+    const parsed: Registro[] = rows.map((row) => toRegistro(row));
+    mergeImported(parsed);
+  }
 
-        .btn-secondary {
-            background: #f0f0f0;
-            color: #666;
-        }
+  function toRegistro(row: any): Registro {
+    // Mapeia colunas de forma resiliente
+    const mapped: Partial<Registro> = {};
+    for (const k of Object.keys(row)) {
+      const norm = normalizeHeader(k);
+      const field = HEADER_MAP[norm];
+      if (!field) continue;
+      (mapped as any)[field] = row[k];
+    }
+    const dataStr = (mapped.data || row.data || row.date || toDateInputValue()) as string;
+    const iso = normalizeToISODate(dataStr);
+    return {
+      id: uid(),
+      data: iso,
+      materia: String(mapped.materia ?? row.materia ?? row.disciplina ?? ""),
+      topico: String(mapped.topico ?? row.topico ?? row.tema ?? ""),
+      horas: parseNumber(mapped.horas ?? row.horas ?? row.tempo),
+      status: (normalizeStatus(mapped.status ?? row.status) as Status) ?? "Pendente",
+      notas: String(mapped.notas ?? row.notas ?? row.observacoes ?? ""),
+    };
+  }
 
-        .btn-secondary:hover {
-            background: #e0e0e0;
-        }
+  function normalizeToISODate(input: string): string {
+    if (!input) return toDateInputValue();
+    // Tenta formatos comuns: dd/mm/yyyy, yyyy-mm-dd, mm/dd/yyyy
+    const s = String(input).trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s; // ISO já
+    const m1 = s.match(/^(\d{2})\/(\d{2})\/(\d{4})$/); // dd/mm/yyyy
+    if (m1) {
+      const [_, dd, mm, yyyy] = m1;
+      return `${yyyy}-${mm}-${dd}`;
+    }
+    const m2 = s.match(/^(\d{2})\/(\d{2})\/(\d{2,4})$/); // dd/mm/yy
+    if (m2) {
+      let [_, dd, mm, yy] = m2;
+      if (yy.length === 2) yy = `20${yy}`;
+      return `${yy}-${mm}-${dd}`;
+    }
+    const d = new Date(s);
+    if (!isNaN(d.getTime())) return toDateInputValue(d);
+    return toDateInputValue();
+  }
 
-        .btn-add-subject {
-            background: #4CAF50;
-            color: white;
-            padding: 8px 16px;
-            font-size: 13px;
-            margin-top: 10px;
-        }
+  function normalizeStatus(s: any): Status {
+    const n = String(s || "").toLowerCase();
+    if (["pendente", "todo", "a fazer"].includes(n)) return "Pendente";
+    if (["em andamento", "fazendo", "in progress"].includes(n)) return "Em andamento";
+    if (["concluido", "concluído", "feito", "done"].includes(n)) return "Concluído";
+    return "Pendente";
+  }
 
-        .btn-add-subject:hover {
-            background: #45a049;
-            transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(76, 175, 80, 0.3);
-        }
+  function mergeImported(parsed: Registro[]) {
+    if (!parsed.length) return alert("Nenhum dado reconhecido para importar.");
+    // Evita duplicatas por (data, materia, topico, horas, status)
+    const key = (r: Registro) => [r.data, r.materia, r.topico, r.horas, r.status, r.notas?.slice(0,50)].join("|");
+    const existing = new Set(registros.map(key));
+    const novo = parsed.filter((r) => !existing.has(key(r)));
+    if (!novo.length) return alert("Nada novo para importar.");
+    setRegistros((prev) => [...novo, ...prev]);
+  }
 
-        .subjects-list {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 10px;
-            margin-top: 15px;
-        }
+  // ---- Exportar ----
+  function exportJSON() {
+    const blob = new Blob([JSON.stringify(registros, null, 2)], {
+      type: "application/json;charset=utf-8",
+    });
+    saveAs(blob, `controle-estudos-${new Date().toISOString().slice(0,10)}.json`);
+  }
 
-        .subject-tag {
-            background: #f0f4ff;
-            color: #667eea;
-            padding: 8px 15px;
-            border-radius: 20px;
-            font-size: 13px;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
+  function exportCSV() {
+    const rows = registros.map((r) => ({
+      Data: r.data,
+      Matéria: r.materia,
+      Tópico: r.topico,
+      Horas: r.horas,
+      Status: r.status,
+      Notas: r.notas ?? "",
+    }));
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const csv = XLSX.utils.sheet_to_csv(ws);
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    saveAs(blob, `controle-estudos-${new Date().toISOString().slice(0,10)}.csv`);
+  }
 
-        .subject-tag .remove {
-            cursor: pointer;
-            color: #999;
-            font-weight: bold;
-            transition: color 0.3s;
-        }
+  function exportXLSX() {
+    const rows = registros.map((r) => ({
+      Data: r.data,
+      Matéria: r.materia,
+      Tópico: r.topico,
+      Horas: r.horas,
+      Status: r.status,
+      Notas: r.notas ?? "",
+    }));
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.json_to_sheet(rows);
+    XLSX.utils.book_append_sheet(wb, ws, "Estudos");
+    const wbout = XLSX.write(wb, { bookType: "xlsx", type: "array" });
+    const blob = new Blob([wbout], {
+      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    });
+    saveAs(blob, `controle-estudos-${new Date().toISOString().slice(0,10)}.xlsx`);
+  }
 
-        .subject-tag .remove:hover {
-            color: #ff4444;
-        }
+  function handleFileInput(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0];
+    if (f) onImportFile(f);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }
 
-        .study-list {
-            max-height: 400px;
-            overflow-y: auto;
-        }
-
-        .study-day {
-            background: #f8f9fa;
-            border-radius: 10px;
-            padding: 15px;
-            margin-bottom: 15px;
-        }
-
-        .study-day-header {
-            display: flex;
-            justify-content: space-between;
-            margin-bottom: 10px;
-            font-weight: 600;
-            color: #333;
-        }
-
-        .study-entry {
-            background: white;
-            padding: 10px;
-            border-radius: 8px;
-            margin-bottom: 8px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-
-        .study-entry-info {
-            flex: 1;
-        }
-
-        .study-entry-subject {
-            font-weight: 600;
-            color: #667eea;
-            font-size: 13px;
-        }
-
-        .study-entry-content {
-            color: #666;
-            font-size: 12px;
-            margin-top: 3px;
-        }
-
-        .study-entry-time {
-            color: #999;
-            font-size: 11px;
-        }
-
-        .modal {
-            display: none;
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0,0,0,0.5);
-            z-index: 1000;
-            animation: fadeIn 0.3s;
-        }
-
-        .modal.active {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-
-        .modal-content {
-            background: white;
-            border-radius: 15px;
-            padding: 30px;
-            max-width: 400px;
-            width: 90%;
-            animation: slideUp 0.3s;
-        }
-
-        .modal-header {
-            margin-bottom: 20px;
-        }
-
-        .modal-title {
-            font-size: 20px;
-            color: #333;
-        }
-
-        .modal-footer {
-            display: flex;
-            gap: 10px;
-            justify-content: flex-end;
-            margin-top: 20px;
-        }
-
-        @keyframes fadeIn {
-            from { opacity: 0; }
-            to { opacity: 1; }
-        }
-
-        @keyframes slideUp {
-            from {
-                transform: translateY(30px);
-                opacity: 0;
-            }
-            to {
-                transform: translateY(0);
-                opacity: 1;
-            }
-        }
-
-        .empty-state {
-            text-align: center;
-            padding: 40px;
-            color: #999;
-        }
-
-        .empty-state-icon {
-            font-size: 48px;
-            margin-bottom: 15px;
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="header">
-            <h1>
-                <div class="logo">📚</div>
-                Controle de Matérias Estudadas
-            </h1>
-            <div class="stats">
-                <div class="stat-card">
-                    <div class="stat-number" id="totalHours">0</div>
-                    <div class="stat-label">Horas Totais</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-number" id="totalDays">0</div>
-                    <div class="stat-label">Dias Estudados</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-number" id="totalSubjects">0</div>
-                    <div class="stat-label">Matérias</div>
-                </div>
+  // ---- UI ----
+  return (
+    <div className="min-h-screen bg-gray-50 text-gray-900">
+      <header className="sticky top-0 z-10 bg-white/80 backdrop-blur border-b">
+        <div className="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between">
+          <h1 className="text-2xl font-bold">Controle de Estudos</h1>
+          <div className="flex gap-2">
+            <button onClick={adicionarVazio} className="px-3 py-2 rounded-2xl bg-blue-600 text-white hover:bg-blue-700 shadow">
+              + Novo
+            </button>
+            <label className="px-3 py-2 rounded-2xl bg-gray-200 hover:bg-gray-300 cursor-pointer">
+              Importar (XLSX/CSV/JSON)
+              <input ref={fileInputRef} type="file" accept=".xlsx,.csv,.json" className="hidden" onChange={handleFileInput} />
+            </label>
+            <div className="relative group">
+              <button className="px-3 py-2 rounded-2xl bg-emerald-600 text-white hover:bg-emerald-700 shadow">Exportar</button>
+              <div className="absolute right-0 mt-2 hidden group-hover:block bg-white border rounded-xl shadow p-2">
+                <button onClick={exportXLSX} className="px-3 py-2 rounded-lg hover:bg-gray-100 w-full text-left">Excel (.xlsx)</button>
+                <button onClick={exportCSV} className="px-3 py-2 rounded-lg hover:bg-gray-100 w-full text-left">CSV (.csv)</button>
+                <button onClick={exportJSON} className="px-3 py-2 rounded-lg hover:bg-gray-100 w-full text-left">JSON (.json)</button>
+              </div>
             </div>
+            <button onClick={limparTudo} className="px-3 py-2 rounded-2xl bg-red-600 text-white hover:bg-red-700 shadow">Limpar</button>
+          </div>
+        </div>
+      </header>
+
+      <main className="max-w-6xl mx-auto px-4 py-6">
+        {/* Filtros */}
+        <div className="grid md:grid-cols-4 gap-3 items-end mb-6">
+          <div>
+            <label className="text-sm">Buscar</label>
+            <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="matéria, tópico ou notas" className="w-full px-3 py-2 rounded-xl border" />
+          </div>
+          <div>
+            <label className="text-sm">Status</label>
+            <select value={statusFiltro} onChange={(e) => setStatusFiltro(e.target.value as any)} className="w-full px-3 py-2 rounded-xl border">
+              <option>Todos</option>
+              <option>Pendente</option>
+              <option>Em andamento</option>
+              <option>Concluído</option>
+            </select>
+          </div>
+          <div>
+            <label className="text-sm">De</label>
+            <input type="date" value={de} onChange={(e) => setDe(e.target.value)} className="w-full px-3 py-2 rounded-xl border" />
+          </div>
+          <div>
+            <label className="text-sm">Até</label>
+            <input type="date" value={ate} onChange={(e) => setAte(e.target.value)} className="w-full px-3 py-2 rounded-xl border" />
+          </div>
         </div>
 
-        <div class="main-content">
-            <div class="card">
-                <h2 class="card-title">
-                    ➕ Adicionar Dados de Estudo
-                </h2>
-
-                <div class="form-section">
-                    <h3>📅 Data e Horário</h3>
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label>Data</label>
-                            <input type="date" id="studyDate" value="">
-                        </div>
-                        <div class="form-group">
-                            <label>Horário de Início</label>
-                            <input type="time" id="startTime">
-                        </div>
-                    </div>
-                </div>
-
-                <div class="form-section">
-                    <h3>📚 Matéria e Conteúdo</h3>
-                    <div class="form-group">
-                        <label>Matéria</label>
-                        <select id="subjectSelect">
-                            <option value="">Selecione uma matéria...</option>
-                        </select>
-                        <button class="btn btn-add-subject" onclick="openSubjectModal()">
-                            + Adicionar Nova Matéria
-                        </button>
-                    </div>
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label>Duração (minutos)</label>
-                            <input type="number" id="duration" min="1" placeholder="30">
-                        </div>
-                        <div class="form-group">
-                            <label>Tipo de Estudo</label>
-                            <select id="studyType">
-                                <option value="leitura">Leitura</option>
-                                <option value="revisao">Revisão</option>
-                                <option value="exercicios">Exercícios</option>
-                                <option value="videoaula">Videoaula</option>
-                                <option value="resumo">Resumo</option>
-                            </select>
-                        </div>
-                    </div>
-                    <div class="form-group">
-                        <label>Conteúdo Estudado</label>
-                        <textarea id="content" rows="3" placeholder="Descreva o que foi estudado..."></textarea>
-                    </div>
-                </div>
-
-                <div class="form-section">
-                    <h3>📝 Observações (Opcional)</h3>
-                    <div class="form-group">
-                        <textarea id="observations" rows="2" placeholder="Adicione observações ou lembretes..."></textarea>
-                    </div>
-                </div>
-
-                <button class="btn btn-primary" onclick="addStudyEntry()" style="width: 100%;">
-                    Adicionar Registro de Estudo
-                </button>
-            </div>
-
-            <div class="card">
-                <h2 class="card-title">
-                    📊 Histórico de Estudos
-                </h2>
-                
-                <div class="form-section">
-                    <h3>🏷️ Matérias Cadastradas</h3>
-                    <div class="subjects-list" id="subjectsList"></div>
-                </div>
-
-                <div class="form-section">
-                    <h3>📖 Registros Recentes</h3>
-                    <div class="study-list" id="studyList">
-                        <div class="empty-state">
-                            <div class="empty-state-icon">📚</div>
-                            <p>Nenhum registro de estudo ainda</p>
-                            <p style="font-size: 12px; margin-top: 10px;">Comece adicionando seu primeiro registro!</p>
-                        </div>
-                    </div>
-                </div>
-            </div>
+        {/* Resumo */}
+        <div className="grid sm:grid-cols-3 gap-3 mb-4">
+          <div className="p-4 rounded-2xl bg-white shadow border">
+            <div className="text-sm text-gray-500">Registros</div>
+            <div className="text-2xl font-semibold">{filtrados.length}</div>
+          </div>
+          <div className="p-4 rounded-2xl bg-white shadow border">
+            <div className="text-sm text-gray-500">Horas (total)</div>
+            <div className="text-2xl font-semibold">{totalHoras.toLocaleString(undefined, { maximumFractionDigits: 2 })}</div>
+          </div>
+          <div className="p-4 rounded-2xl bg-white shadow border">
+            <div className="text-sm text-gray-500">Última atualização</div>
+            <div className="text-2xl font-semibold">{toDateInputValue().split("-").reverse().join("/")}</div>
+          </div>
         </div>
+
+        {/* Tabela */}
+        <div className="overflow-x-auto rounded-2xl border bg-white shadow">
+          <table className="min-w-full text-sm">
+            <thead className="bg-gray-100 text-gray-700">
+              <tr>
+                <Th>Data</Th>
+                <Th>Matéria</Th>
+                <Th>Tópico</Th>
+                <Th>Horas</Th>
+                <Th>Status</Th>
+                <Th>Notas</Th>
+                <Th className="text-right">Ações</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtrados.map((r) => (
+                <tr key={r.id} className="border-t">
+                  <Td>
+                    <input
+                      type="date"
+                      value={r.data}
+                      onChange={(e) => atualizar(r.id, { data: e.target.value })}
+                      className="px-2 py-1 rounded-lg border"
+                    />
+                  </Td>
+                  <Td>
+                    <input
+                      value={r.materia}
+                      onChange={(e) => atualizar(r.id, { materia: e.target.value })}
+                      placeholder="Ex.: Matemática"
+                      className="w-full px-2 py-1 rounded-lg border"
+                    />
+                  </Td>
+                  <Td>
+                    <input
+                      value={r.topico}
+                      onChange={(e) => atualizar(r.id, { topico: e.target.value })}
+                      placeholder="Ex.: Derivadas"
+                      className="w-full px-2 py-1 rounded-lg border"
+                    />
+                  </Td>
+                  <Td>
+                    <input
+                      type="number"
+                      step="0.25"
+                      value={r.horas}
+                      onChange={(e) => atualizar(r.id, { horas: parseNumber(e.target.value) })}
+                      className="w-28 px-2 py-1 rounded-lg border text-right"
+                    />
+                  </Td>
+                  <Td>
+                    <select
+                      value={r.status}
+                      onChange={(e) => atualizar(r.id, { status: e.target.value as Status })}
+                      className="px-2 py-1 rounded-lg border"
+                    >
+                      <option>Pendente</option>
+                      <option>Em andamento</option>
+                      <option>Concluído</option>
+                    </select>
+                  </Td>
+                  <Td>
+                    <input
+                      value={r.notas ?? ""}
+                      onChange={(e) => atualizar(r.id, { notas: e.target.value })}
+                      placeholder="Observações"
+                      className="w-full px-2 py-1 rounded-lg border"
+                    />
+                  </Td>
+                  <Td className="text-right">
+                    <button onClick={() => remover(r.id)} className="px-3 py-1.5 rounded-xl bg-rose-600 text-white hover:bg-rose-700">
+                      Remover
+                    </button>
+                  </Td>
+                </tr>
+              ))}
+
+              {filtrados.length === 0 && (
+                <tr>
+                  <td colSpan={7} className="text-center py-10 text-gray-500">
+                    Nenhum registro. Clique em <b>+ Novo</b> ou importe sua planilha.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Ajuda */}
+        <div className="mt-8 text-sm text-gray-600 space-y-2">
+          <details className="bg-white border rounded-2xl p-4 shadow">
+            <summary className="cursor-pointer font-medium">Como publicar no GitHub Pages</summary>
+            <ol className="list-decimal ml-6 mt-2 space-y-1">
+              <li>Crie um repositório novo no GitHub, por exemplo <code>controle-de-estudos</code>.</li>
+              <li>No seu projeto (Vite/React, Next export estático ou simples HTML com CDN), inclua este componente como página principal.</li>
+              <li>Faça commit e push.</li>
+              <li>No repositório, vá em <b>Settings → Pages</b> e selecione a branch <b>main</b> e a pasta <b>/ (root)</b> ou <b>/docs</b>.</li>
+              <li>Abra a URL exibida pelo GitHub Pages (algo como <i>https://seu-usuario.github.io/controle-de-estudos</i>).</li>
+            </ol>
+          </details>
+          <details className="bg-white border rounded-2xl p-4 shadow">
+            <summary className="cursor-pointer font-medium">Importando sua planilha existente</summary>
+            <p className="mt-2">Use o botão <b>Importar</b> e selecione seu arquivo <i>.xlsx</i> (ou .csv/.json). O app tentará reconhecer cabeçalhos como <i>Data</i>, <i>Matéria</i>, <i>Tópico</i>, <i>Horas</i>, <i>Status</i> e <i>Notas</i>.</p>
+          </details>
+          <details className="bg-white border rounded-2xl p-4 shadow">
+            <summary className="cursor-pointer font-medium">Backup & sincronização via Git</summary>
+            <p className="mt-2">Exporte em JSON e faça commit no repositório. Para compartilhar, outras pessoas podem importar esse mesmo JSON no app. (Para sincronização automática, é possível integrar a API do GitHub com um token — podemos adicionar depois.)</p>
+          </details>
+        </div>
+      </main>
     </div>
+  );
+}
 
-    <!-- Modal para Adicionar Nova Matéria -->
-    <div class="modal" id="subjectModal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h3 class="modal-title">Adicionar Nova Matéria</h3>
-            </div>
-            <div class="form-group">
-                <label>Nome da Matéria</label>
-                <input type="text" id="newSubjectName" placeholder="Ex: Direito Constitucional">
-            </div>
-            <div class="form-group">
-                <label>Cor (Opcional)</label>
-                <input type="color" id="newSubjectColor" value="#667eea">
-            </div>
-            <div class="modal-footer">
-                <button class="btn btn-secondary" onclick="closeSubjectModal()">Cancelar</button>
-                <button class="btn btn-primary" onclick="addNewSubject()">Adicionar</button>
-            </div>
-        </div>
-    </div>
+function Th({ children, className = "" }: { children: React.ReactNode; className?: string }) {
+  return <th className={`text-left px-3 py-2 text-xs font-semibold uppercase tracking-wide ${className}`}>{children}</th>;
+}
 
-    <script>
-        // Estado da aplicação
-        let appState = {
-            subjects: [
-                { id: 1, name: 'Empresarial', color: '#667eea' },
-                { id: 2, name: 'Lei das S/A', color: '#764ba2' },
-                { id: 3, name: 'Processo Civil', color: '#4CAF50' },
-                { id: 4, name: 'Direito Constitucional', color: '#FF9800' },
-                { id: 5, name: 'Direito Penal', color: '#F44336' }
-            ],
-            studyData: []
-        };
-
-        // Inicialização
-        document.addEventListener('DOMContentLoaded', function() {
-            // Carregar dados do localStorage
-            loadData();
-            
-            // Definir data de hoje
-            document.getElementById('studyDate').value = new Date().toISOString().split('T')[0];
-            
-            // Atualizar interface
-            updateSubjectsList();
-            updateSubjectSelect();
-            updateStudyList();
-            updateStats();
-        });
-
-        // Funções de Persistência
-        function saveData() {
-            localStorage.setItem('studyAppState', JSON.stringify(appState));
-        }
-
-        function loadData() {
-            const saved = localStorage.getItem('studyAppState');
-            if (saved) {
-                appState = JSON.parse(saved);
-            }
-        }
-
-        // Funções de Matérias
-        function openSubjectModal() {
-            document.getElementById('subjectModal').classList.add('active');
-            document.getElementById('newSubjectName').focus();
-        }
-
-        function closeSubjectModal() {
-            document.getElementById('subjectModal').classList.remove('active');
-            document.getElementById('newSubjectName').value = '';
-        }
-
-        function addNewSubject() {
-            const name = document.getElementById('newSubjectName').value.trim();
-            const color = document.getElementById('newSubjectColor').value;
-            
-            if (!name) {
-                alert('Por favor, insira o nome da matéria');
-                return;
-            }
-            
-            // Verificar se já existe
-            if (appState.subjects.some(s => s.name.toLowerCase() === name.toLowerCase())) {
-                alert('Esta matéria já está cadastrada');
-                return;
-            }
-            
-            // Adicionar nova matéria
-            const newSubject = {
-                id: Date.now(),
-                name: name,
-                color: color
-            };
-            
-            appState.subjects.push(newSubject);
-            saveData();
-            
-            // Atualizar interface
-            updateSubjectsList();
-            updateSubjectSelect();
-            
-            // Selecionar a nova matéria automaticamente
-            document.getElementById('subjectSelect').value = newSubject.id;
-            
-            closeSubjectModal();
-        }
-
-        function removeSubject(subjectId) {
-            if (confirm('Tem certeza que deseja remover esta matéria?')) {
-                appState.subjects = appState.subjects.filter(s => s.id !== subjectId);
-                saveData();
-                updateSubjectsList();
-                updateSubjectSelect();
-                updateStats();
-            }
-        }
-
-        // Funções de Estudo
-        function addStudyEntry() {
-            const date = document.getElementById('studyDate').value;
-            const startTime = document.getElementById('startTime').value;
-            const subjectId = document.getElementById('subjectSelect').value;
-            const duration = parseInt(document.getElementById('duration').value);
-            const studyType = document.getElementById('studyType').value;
-            const content = document.getElementById('content').value.trim();
-            const observations = document.getElementById('observations').value.trim();
-            
-            // Validação
-            if (!date || !startTime || !subjectId || !duration || !content) {
-                alert('Por favor, preencha todos os campos obrigatórios');
-                return;
-            }
-            
-            // Encontrar a matéria
-            const subject = appState.subjects.find(s => s.id == subjectId);
-            if (!subject) {
-                alert('Matéria não encontrada');
-                return;
-            }
-            
-            // Encontrar ou criar entrada para o dia
-            let dayEntry = appState.studyData.find(d => d.date === date);
-            if (!dayEntry) {
-                const dateObj = new Date(date + 'T00:00:00');
-                const dayNames = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
-                
-                dayEntry = {
-                    date: date,
-                    dayName: dayNames[dateObj.getDay()],
-                    totalHours: 0,
-                    entries: [],
-                    observations: []
-                };
-                appState.studyData.push(dayEntry);
-            }
-            
-            // Adicionar entrada de estudo
-            const entry = {
-                time: startTime,
-                duration: duration,
-                subject: subject.name,
-                subjectColor: subject.color,
-                studyType: studyType,
-                content: content
-            };
-            
-            dayEntry.entries.push(entry);
-            
-            // Adicionar observação se houver
-            if (observations) {
-                dayEntry.observations.push({
-                    time: startTime,
-                    text: observations
-                });
-            }
-            
-            // Recalcular total de horas do dia
-            dayEntry.totalHours = dayEntry.entries.reduce((sum, e) => sum + e.duration, 0) / 60;
-            
-            // Ordenar dias por data (mais recente primeiro)
-            appState.studyData.sort((a, b) => new Date(b.date) - new Date(a.date));
-            
-            // Salvar e atualizar interface
-            saveData();
-            updateStudyList();
-            updateStats();
-            
-            // Limpar formulário
-            document.getElementById('startTime').value = '';
-            document.getElementById('duration').value = '';
-            document.getElementById('content').value = '';
-            document.getElementById('observations').value = '';
-            
-            // Feedback visual
-            alert('Registro de estudo adicionado com sucesso!');
-        }
-
-        // Funções de Atualização da Interface
-        function updateSubjectsList() {
-            const container = document.getElementById('subjectsList');
-            
-            if (appState.subjects.length === 0) {
-                container.innerHTML = '<p style="color: #999; font-size: 13px;">Nenhuma matéria cadastrada ainda</p>';
-                return;
-            }
-            
-            container.innerHTML = appState.subjects.map(subject => `
-                <div class="subject-tag" style="background: ${subject.color}20; color: ${subject.color};">
-                    ${subject.name}
-                    <span class="remove" onclick="removeSubject(${subject.id})">×</span>
-                </div>
-            `).join('');
-        }
-
-        function updateSubjectSelect() {
-            const select = document.getElementById('subjectSelect');
-            const currentValue = select.value;
-            
-            select.innerHTML = '<option value="">Selecione uma matéria...</option>' +
-                appState.subjects.map(subject => 
-                    `<option value="${subject.id}">${subject.name}</option>`
-                ).join('');
-            
-            // Restaurar seleção se ainda existir
-            if (currentValue && appState.subjects.some(s => s.id == currentValue)) {
-                select.value = currentValue;
-            }
-        }
-
-        function updateStudyList() {
-            const container = document.getElementById('studyList');
-            
-            if (appState.studyData.length === 0) {
-                container.innerHTML = `
-                    <div class="empty-state">
-                        <div class="empty-state-icon">📚</div>
-                        <p>Nenhum registro de estudo ainda</p>
-                        <p style="font-size: 12px; margin-top: 10px;">Comece adicionando seu primeiro registro!</p>
-                    </div>
-                `;
-                return;
-            }
-            
-            container.innerHTML = appState.studyData.slice(0, 10).map(day => `
-                <div class="study-day">
-                    <div class="study-day-header">
-                        <span>${formatDate(day.date)} - ${day.dayName}</span>
-                        <span>${day.totalHours.toFixed(1)}h</span>
-                    </div>
-                    ${day.entries.map(entry => `
-                        <div class="study-entry">
-                            <div class="study-entry-info">
-                                <div class="study-entry-subject" style="color: ${entry.subjectColor || '#667eea'}">
-                                    ${entry.subject} • ${getStudyTypeLabel(entry.studyType)}
-                                </div>
-                                <div class="study-entry-content">${entry.content}</div>
-                                <div class="study-entry-time">${entry.time} • ${entry.duration} min</div>
-                            </div>
-                        </div>
-                    `).join('')}
-                    ${day.observations.length > 0 ? `
-                        <div style="margin-top: 10px; padding: 10px; background: #fff9c4; border-radius: 8px;">
-                            <div style="font-size: 11px; color: #f57c00; font-weight: 600; margin-bottom: 5px;">📝 Observações</div>
-                            ${day.observations.map(obs => `
-                                <div style="font-size: 12px; color: #666;">${obs.text}</div>
-                            `).join('')}
-                        </div>
-                    ` : ''}
-                </div>
-            `).join('');
-        }
-
-        function updateStats() {
-            // Calcular estatísticas
-            let totalHours = 0;
-            let totalDays = appState.studyData.length;
-            let subjectsStudied = new Set();
-            
-            appState.studyData.forEach(day => {
-                totalHours += day.totalHours;
-                day.entries.forEach(entry => {
-                    subjectsStudied.add(entry.subject);
-                });
-            });
-            
-            // Atualizar interface
-            document.getElementById('totalHours').textContent = Math.round(totalHours);
-            document.getElementById('totalDays').textContent = totalDays;
-            document.getElementById('totalSubjects').textContent = subjectsStudied.size;
-        }
-
-        // Funções Auxiliares
-        function formatDate(dateStr) {
-            const date = new Date(dateStr + 'T00:00:00');
-            return date.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
-        }
-
-        function getStudyTypeLabel(type) {
-            const labels = {
-                'leitura': 'Leitura',
-                'revisao': 'Revisão',
-                'exercicios': 'Exercícios',
-                'videoaula': 'Videoaula',
-                'resumo': 'Resumo'
-            };
-            return labels[type] || type;
-        }
-
-        // Fechar modal ao clicar fora
-        document.getElementById('subjectModal').addEventListener('click', function(e) {
-            if (e.target === this) {
-                closeSubjectModal();
-            }
-        });
-
-        // Atalho de teclado para adicionar matéria (Ctrl+M)
-        document.addEventListener('keydown', function(e) {
-            if (e.ctrlKey && e.key === 'm') {
-                e.preventDefault();
-                openSubjectModal();
-            }
-        });
-    </script>
-</body>
-</html>
+function Td({ children, className = "" }: { children: React.ReactNode; className?: string }) {
+  return <td className={`px-3 py-2 align-top ${className}`}>{children}</td>;
+}
