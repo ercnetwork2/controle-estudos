@@ -592,7 +592,40 @@
             }
         }
 
-        .floating-action {
+        .subject-input-container {
+            position: relative;
+        }
+
+        .subject-suggestions {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            background: white;
+            border: 2px solid var(--border);
+            border-top: none;
+            border-radius: 0 0 12px 12px;
+            max-height: 200px;
+            overflow-y: auto;
+            z-index: 100;
+            display: none;
+        }
+
+        .subject-suggestion {
+            padding: 12px 16px;
+            cursor: pointer;
+            border-bottom: 1px solid var(--border);
+            transition: all 0.2s ease;
+        }
+
+        .subject-suggestion:hover {
+            background: var(--gradient-light);
+            color: var(--primary);
+        }
+
+        .subject-suggestion:last-child {
+            border-bottom: none;
+        }
             position: fixed;
             bottom: 30px;
             right: 30px;
@@ -614,6 +647,7 @@
             box-shadow: 0 15px 35px rgba(102, 126, 234, 0.5);
         }
     </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 </head>
 <body>
     <div class="container">
@@ -676,7 +710,10 @@
                         </div>
                         <div class="form-group">
                             <label for="sessionSubject">📚 Matéria</label>
-                            <input type="text" id="sessionSubject" placeholder="Ex: Processo Civil" required>
+                            <div class="subject-input-container">
+                                <input type="text" id="sessionSubject" placeholder="Ex: Processo Civil" required list="subjectSuggestions">
+                                <datalist id="subjectSuggestions"></datalist>
+                            </div>
                         </div>
                     </div>
                     <div class="form-group">
@@ -746,7 +783,8 @@
                     
                     <div class="form-group">
                         <label for="quickObsSubject">Matéria</label>
-                        <input type="text" id="quickObsSubject" placeholder="Ex: Processo Civil">
+                        <input type="text" id="quickObsSubject" placeholder="Ex: Processo Civil" list="obsSubjectSuggestions">
+                        <datalist id="obsSubjectSuggestions"></datalist>
                     </div>
                     <div class="form-group">
                         <label for="quickObsText">Observação</label>
@@ -781,6 +819,13 @@
                     <label>Data Final</label>
                     <input type="date" id="filterDateEnd" onchange="applyFilters()">
                 </div>
+                <div class="filter-group">
+                    <label>Exportar PDF</label>
+                    <input type="date" id="pdfExportDate" title="Selecione a data para exportar PDF">
+                </div>
+                <button class="btn" onclick="exportDailyPDF()" title="Exportar relatório do dia em PDF">
+                    📄 PDF do Dia
+                </button>
                 <button class="btn btn-secondary btn-small" onclick="clearFilters()">
                     🔄 Limpar Filtros
                 </button>
@@ -816,6 +861,9 @@
                 <button class="btn" onclick="exportData()">
                     📊 Exportar JSON
                 </button>
+                <button class="btn" onclick="exportDailyPDF()">
+                    📄 Exportar PDF
+                </button>
                 <button class="btn btn-secondary" onclick="importData()">
                     📥 Importar Dados
                 </button>
@@ -850,6 +898,9 @@
             renderSessions();
             renderObservations();
             updateSubjectFilter();
+            updateSubjectSuggestions();
+            updateSubjectSuggestions();
+            setTodayAsPDFDefault();
         };
 
         function setTodayAsDefault() {
@@ -865,6 +916,11 @@
             const currentMonth = now.getFullYear() + '-' + (now.getMonth() + 1).toString().padStart(2, '0');
             document.getElementById('analyticMonth').value = currentMonth;
             document.getElementById('analyticYear').value = now.getFullYear();
+        }
+
+        function setTodayAsPDFDefault() {
+            const today = new Date().toISOString().split('T')[0];
+            document.getElementById('pdfExportDate').value = today;
         }
 
         function loadData() {
@@ -916,6 +972,7 @@
             updateAnalytics();
             renderSessions();
             updateSubjectFilter();
+            updateSubjectSuggestions();
             
             // Limpar formulário
             document.getElementById('sessionDuration').value = '30';
@@ -1126,6 +1183,22 @@
                 subjects.map(subject => `<option value="${subject}">${subject}</option>`).join('');
         }
 
+        function updateSubjectSuggestions() {
+            const subjects = [...new Set(studySessions.map(s => s.subject))].sort();
+            
+            // Atualizar sugestões para sessões
+            const sessionSuggestions = document.getElementById('subjectSuggestions');
+            sessionSuggestions.innerHTML = subjects.map(subject => 
+                `<option value="${subject}">`
+            ).join('');
+            
+            // Atualizar sugestões para observações
+            const obsSuggestions = document.getElementById('obsSubjectSuggestions');
+            obsSuggestions.innerHTML = subjects.map(subject => 
+                `<option value="${subject}">`
+            ).join('');
+        }
+
         function applyFilters() {
             const subjectFilter = document.getElementById('filterSubject').value;
             const startDate = document.getElementById('filterDateStart').value;
@@ -1233,6 +1306,204 @@
             showToast('📋 CSV exportado com sucesso!', 'success');
         }
 
+        function exportDailyPDF() {
+            const selectedDate = document.getElementById('pdfExportDate').value;
+            
+            if (!selectedDate) {
+                showToast('⚠️ Por favor, selecione uma data para exportar!', 'warning');
+                return;
+            }
+            
+            // Filtrar sessões do dia selecionado
+            const daySessions = studySessions.filter(session => session.date === selectedDate);
+            
+            if (daySessions.length === 0) {
+                showToast('⚠️ Nenhuma sessão encontrada para esta data!', 'warning');
+                return;
+            }
+
+            // Ordenar sessões por horário
+            daySessions.sort((a, b) => a.time.localeCompare(b.time));
+            
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF();
+            
+            // Configurações
+            const pageWidth = doc.internal.pageSize.width;
+            const margin = 20;
+            const lineHeight = 7;
+            let yPosition = margin;
+            
+            // Cores
+            const primaryColor = [102, 126, 234]; // #667eea
+            const secondaryColor = [118, 75, 162]; // #764ba2
+            const textColor = [31, 41, 55]; // #1f2937
+            const lightGray = [229, 231, 235]; // #e5e7eb
+            
+            // Função para adicionar texto colorido
+            function addColoredText(text, x, y, color, fontSize = 10, style = 'normal') {
+                doc.setFontSize(fontSize);
+                doc.setFont('helvetica', style);
+                doc.setTextColor(color[0], color[1], color[2]);
+                doc.text(text, x, y);
+            }
+            
+            // Função para adicionar retângulo colorido
+            function addColoredRect(x, y, width, height, fillColor, borderColor = null) {
+                doc.setFillColor(fillColor[0], fillColor[1], fillColor[2]);
+                if (borderColor) {
+                    doc.setDrawColor(borderColor[0], borderColor[1], borderColor[2]);
+                    doc.rect(x, y, width, height, 'FD');
+                } else {
+                    doc.rect(x, y, width, height, 'F');
+                }
+            }
+            
+            // Cabeçalho com frase motivacional
+            addColoredRect(margin, yPosition, pageWidth - 2 * margin, 25, [245, 245, 245]);
+            addColoredText('📚 É IGUAL JOGADOR DE FUTEBOL. TEM PESSOA QUE É O NEYMAR, MAS A MAIORIA NÃO CHEGA LÁ 🚀', 
+                pageWidth / 2, yPosition + 8, primaryColor, 10, 'bold');
+            doc.setTextColor(textColor[0], textColor[1], textColor[2]);
+            doc.text('📚 É IGUAL JOGADOR DE FUTEBOL. TEM PESSOA QUE É O NEYMAR, MAS A MAIORIA NÃO CHEGA LÁ 🚀', 
+                pageWidth / 2, yPosition + 8, { align: 'center' });
+            
+            yPosition += 35;
+            
+            // Título do relatório
+            addColoredText('📖 CONTROLE DE ESTUDOS - RELATÓRIO DIÁRIO', 
+                pageWidth / 2, yPosition, primaryColor, 16, 'bold');
+            doc.text('📖 CONTROLE DE ESTUDOS - RELATÓRIO DIÁRIO', pageWidth / 2, yPosition, { align: 'center' });
+            
+            yPosition += 15;
+            
+            // Informações da data
+            const dayOfWeek = getDayOfWeek(selectedDate);
+            const formattedDate = formatDate(selectedDate);
+            
+            addColoredText(`📅 ${formattedDate} - ${dayOfWeek}`, 
+                pageWidth / 2, yPosition, secondaryColor, 12, 'bold');
+            doc.text(`📅 ${formattedDate} - ${dayOfWeek}`, pageWidth / 2, yPosition, { align: 'center' });
+            
+            yPosition += 15;
+            
+            // Estatísticas do dia
+            const totalMinutes = daySessions.reduce((sum, session) => sum + session.duration, 0);
+            const totalHours = (totalMinutes / 60).toFixed(1);
+            const totalSessions = daySessions.length;
+            const uniqueSubjects = new Set(daySessions.map(s => s.subject)).size;
+            
+            // Caixa de estatísticas
+            addColoredRect(margin, yPosition, pageWidth - 2 * margin, 20, lightGray);
+            
+            const statsY = yPosition + 6;
+            addColoredText(`📊 ${totalSessions} sessões`, margin + 10, statsY, textColor, 10, 'bold');
+            addColoredText(`⏱️ ${totalHours}h totais`, margin + 60, statsY, textColor, 10, 'bold');
+            addColoredText(`📚 ${uniqueSubjects} matérias`, margin + 110, statsY, textColor, 10, 'bold');
+            
+            yPosition += 35;
+            
+            // Cabeçalho da tabela
+            addColoredRect(margin, yPosition, pageWidth - 2 * margin, 12, primaryColor);
+            addColoredText('HORA', margin + 5, yPosition + 8, [255, 255, 255], 10, 'bold');
+            addColoredText('DURAÇÃO', margin + 35, yPosition + 8, [255, 255, 255], 10, 'bold');
+            addColoredText('MATÉRIA', margin + 75, yPosition + 8, [255, 255, 255], 10, 'bold');
+            
+            yPosition += 15;
+            
+            // Cores alternadas para as linhas
+            const rowColors = [
+                [102, 126, 234, 0.1], // Primary light
+                [118, 75, 162, 0.1],  // Secondary light
+                [16, 185, 129, 0.1],  // Success light
+                [245, 158, 11, 0.1],  // Warning light
+                [239, 68, 68, 0.1]    // Danger light
+            ];
+            
+            // Listar sessões
+            daySessions.forEach((session, index) => {
+                const colorIndex = index % rowColors.length;
+                const rowColor = [
+                    Math.floor(rowColors[colorIndex][0]),
+                    Math.floor(rowColors[colorIndex][1]), 
+                    Math.floor(rowColors[colorIndex][2])
+                ];
+                
+                // Verificar se precisa de nova página
+                if (yPosition > doc.internal.pageSize.height - 40) {
+                    doc.addPage();
+                    yPosition = margin;
+                }
+                
+                // Linha da sessão com cor de fundo
+                const rowHeight = session.notes ? 20 : 12;
+                addColoredRect(margin, yPosition, pageWidth - 2 * margin, rowHeight, [...rowColor, 50]);
+                
+                // Dados da sessão
+                addColoredText(session.time, margin + 5, yPosition + 8, textColor, 10, 'bold');
+                addColoredText(`${session.duration}min`, margin + 35, yPosition + 8, textColor, 10);
+                addColoredText(session.subject, margin + 75, yPosition + 8, textColor, 10, 'bold');
+                
+                // Observações (se houver)
+                if (session.notes) {
+                    const maxWidth = pageWidth - margin - 85;
+                    const lines = doc.splitTextToSize(session.notes, maxWidth);
+                    addColoredText('📝 ', margin + 75, yPosition + 16, primaryColor, 8);
+                    doc.setFontSize(8);
+                    doc.setTextColor(100, 116, 139);
+                    doc.text(lines, margin + 85, yPosition + 16);
+                }
+                
+                yPosition += rowHeight + 2;
+            });
+            
+            // Observações do dia (se houver)
+            const dayObservations = observations.filter(obs => obs.date === selectedDate);
+            
+            if (dayObservations.length > 0) {
+                yPosition += 10;
+                
+                // Verificar se precisa de nova página
+                if (yPosition > doc.internal.pageSize.height - 60) {
+                    doc.addPage();
+                    yPosition = margin;
+                }
+                
+                addColoredText('📝 OBSERVAÇÕES DO DIA', margin, yPosition, secondaryColor, 12, 'bold');
+                yPosition += 15;
+                
+                dayObservations.forEach((obs, index) => {
+                    if (yPosition > doc.internal.pageSize.height - 30) {
+                        doc.addPage();
+                        yPosition = margin;
+                    }
+                    
+                    addColoredRect(margin, yPosition, pageWidth - 2 * margin, 20, [245, 245, 245]);
+                    addColoredText(`• ${obs.subject}:`, margin + 5, yPosition + 8, primaryColor, 10, 'bold');
+                    
+                    const maxWidth = pageWidth - margin - 20;
+                    const lines = doc.splitTextToSize(obs.text, maxWidth);
+                    doc.setFontSize(9);
+                    doc.setTextColor(textColor[0], textColor[1], textColor[2]);
+                    doc.text(lines, margin + 5, yPosition + 15);
+                    
+                    yPosition += Math.max(20, lines.length * 5 + 10);
+                });
+            }
+            
+            // Rodapé
+            const footerY = doc.internal.pageSize.height - 15;
+            doc.setFontSize(8);
+            doc.setTextColor(150, 150, 150);
+            doc.text(`Gerado em ${new Date().toLocaleString('pt-BR')} | Controle de Estudos Avançado`, 
+                pageWidth / 2, footerY, { align: 'center' });
+            
+            // Salvar PDF
+            const fileName = `relatorio-estudos-${selectedDate}.pdf`;
+            doc.save(fileName);
+            
+            showToast(`📄 PDF "${fileName}" gerado com sucesso!`, 'success');
+        }
+
         function importData() {
             document.getElementById('fileInput').click();
         }
@@ -1267,6 +1538,7 @@
                     renderSessions();
                     renderObservations();
                     updateSubjectFilter();
+                    updateSubjectSuggestions();
                     
                     showToast('📥 Dados importados com sucesso!', 'success');
                 } catch (error) {
