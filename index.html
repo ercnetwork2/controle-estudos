@@ -1331,48 +1331,77 @@
             // Configurações
             const pageWidth = doc.internal.pageSize.width;
             const margin = 20;
-            const lineHeight = 7;
             let yPosition = margin;
             
-            // Cores
+            // Cores pastel suaves
             const primaryColor = [102, 126, 234]; // #667eea
             const secondaryColor = [118, 75, 162]; // #764ba2
             const textColor = [31, 41, 55]; // #1f2937
-            const lightGray = [229, 231, 235]; // #e5e7eb
+            const lightGray = [248, 250, 252]; // #f8fafc
             
-            // Função para adicionar texto colorido
-            function addColoredText(text, x, y, color, fontSize = 10, style = 'normal') {
+            // Função para abreviar matérias longas
+            function abbreviateSubject(subject) {
+                if (subject.length <= 25) return subject;
+                
+                return subject
+                    .replace(/Direito/gi, 'Dto.')
+                    .replace(/Processo/gi, 'Proc.')
+                    .replace(/Constitucional/gi, 'Const.')
+                    .replace(/Administrativo/gi, 'Adm.')
+                    .replace(/Empresarial/gi, 'Emp.')
+                    .replace(/Trabalho/gi, 'Trab.')
+                    .replace(/Financeiro/gi, 'Fin.')
+                    .replace(/Tributário/gi, 'Trib.')
+                    .substring(0, 25) + '...';
+            }
+            
+            // Função para adicionar texto sem caracteres especiais
+            function addText(text, x, y, options = {}) {
+                const fontSize = options.fontSize || 10;
+                const style = options.style || 'normal';
+                const color = options.color || textColor;
+                const align = options.align || 'left';
+                
                 doc.setFontSize(fontSize);
                 doc.setFont('helvetica', style);
                 doc.setTextColor(color[0], color[1], color[2]);
-                doc.text(text, x, y);
-            }
-            
-            // Função para adicionar retângulo colorido
-            function addColoredRect(x, y, width, height, fillColor, borderColor = null) {
-                doc.setFillColor(fillColor[0], fillColor[1], fillColor[2]);
-                if (borderColor) {
-                    doc.setDrawColor(borderColor[0], borderColor[1], borderColor[2]);
-                    doc.rect(x, y, width, height, 'FD');
+                
+                // Remover emojis para evitar problemas de encoding
+                const cleanText = text.replace(/[\u{1F600}-\u{1F64F}]|[\u{1F300}-\u{1F5FF}]|[\u{1F680}-\u{1F6FF}]|[\u{1F1E0}-\u{1F1FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]/gu, '');
+                
+                if (align === 'center') {
+                    doc.text(cleanText, x, y, { align: 'center' });
                 } else {
-                    doc.rect(x, y, width, height, 'F');
+                    doc.text(cleanText, x, y);
                 }
             }
             
+            // Função para adicionar retângulo colorido
+            function addRect(x, y, width, height, fillColor) {
+                doc.setFillColor(fillColor[0], fillColor[1], fillColor[2]);
+                doc.rect(x, y, width, height, 'F');
+            }
+            
             // Cabeçalho com frase motivacional
-            addColoredRect(margin, yPosition, pageWidth - 2 * margin, 25, [245, 245, 245]);
-            addColoredText('📚 É IGUAL JOGADOR DE FUTEBOL. TEM PESSOA QUE É O NEYMAR, MAS A MAIORIA NÃO CHEGA LÁ 🚀', 
-                pageWidth / 2, yPosition + 8, primaryColor, 10, 'bold');
-            doc.setTextColor(textColor[0], textColor[1], textColor[2]);
-            doc.text('📚 É IGUAL JOGADOR DE FUTEBOL. TEM PESSOA QUE É O NEYMAR, MAS A MAIORIA NÃO CHEGA LÁ 🚀', 
-                pageWidth / 2, yPosition + 8, { align: 'center' });
+            addRect(margin, yPosition, pageWidth - 2 * margin, 25, [240, 242, 255]); // Azul pastel muito claro
+            addText('E IGUAL JOGADOR DE FUTEBOL. TEM PESSOA QUE E O NEYMAR, MAS A MAIORIA NAO CHEGA LA', 
+                pageWidth / 2, yPosition + 16, { 
+                    fontSize: 11, 
+                    style: 'bold', 
+                    color: primaryColor, 
+                    align: 'center' 
+                });
             
             yPosition += 35;
             
             // Título do relatório
-            addColoredText('📖 CONTROLE DE ESTUDOS - RELATÓRIO DIÁRIO', 
-                pageWidth / 2, yPosition, primaryColor, 16, 'bold');
-            doc.text('📖 CONTROLE DE ESTUDOS - RELATÓRIO DIÁRIO', pageWidth / 2, yPosition, { align: 'center' });
+            addText('CONTROLE DE ESTUDOS - RELATORIO DIARIO', 
+                pageWidth / 2, yPosition, { 
+                    fontSize: 16, 
+                    style: 'bold', 
+                    color: primaryColor, 
+                    align: 'center' 
+                });
             
             yPosition += 15;
             
@@ -1380,11 +1409,15 @@
             const dayOfWeek = getDayOfWeek(selectedDate);
             const formattedDate = formatDate(selectedDate);
             
-            addColoredText(`📅 ${formattedDate} - ${dayOfWeek}`, 
-                pageWidth / 2, yPosition, secondaryColor, 12, 'bold');
-            doc.text(`📅 ${formattedDate} - ${dayOfWeek}`, pageWidth / 2, yPosition, { align: 'center' });
+            addText(`${formattedDate} - ${dayOfWeek}`, 
+                pageWidth / 2, yPosition, { 
+                    fontSize: 12, 
+                    style: 'bold', 
+                    color: secondaryColor, 
+                    align: 'center' 
+                });
             
-            yPosition += 15;
+            yPosition += 20;
             
             // Estatísticas do dia
             const totalMinutes = daySessions.reduce((sum, session) => sum + session.duration, 0);
@@ -1393,115 +1426,150 @@
             const uniqueSubjects = new Set(daySessions.map(s => s.subject)).size;
             
             // Caixa de estatísticas
-            addColoredRect(margin, yPosition, pageWidth - 2 * margin, 20, lightGray);
+            addRect(margin, yPosition, pageWidth - 2 * margin, 20, [245, 247, 255]); // Azul pastel claro
             
-            const statsY = yPosition + 6;
-            addColoredText(`📊 ${totalSessions} sessões`, margin + 10, statsY, textColor, 10, 'bold');
-            addColoredText(`⏱️ ${totalHours}h totais`, margin + 60, statsY, textColor, 10, 'bold');
-            addColoredText(`📚 ${uniqueSubjects} matérias`, margin + 110, statsY, textColor, 10, 'bold');
+            const statsY = yPosition + 13;
+            addText(`${totalSessions} sessoes`, margin + 15, statsY, { fontSize: 10, style: 'bold' });
+            addText(`${totalHours}h totais`, margin + 65, statsY, { fontSize: 10, style: 'bold' });
+            addText(`${uniqueSubjects} materias`, margin + 115, statsY, { fontSize: 10, style: 'bold' });
             
             yPosition += 35;
             
-            // Cabeçalho da tabela
-            addColoredRect(margin, yPosition, pageWidth - 2 * margin, 12, primaryColor);
-            addColoredText('HORA', margin + 5, yPosition + 8, [255, 255, 255], 10, 'bold');
-            addColoredText('DURAÇÃO', margin + 35, yPosition + 8, [255, 255, 255], 10, 'bold');
-            addColoredText('MATÉRIA', margin + 75, yPosition + 8, [255, 255, 255], 10, 'bold');
+            // Cabeçalho da tabela com layout otimizado
+            addRect(margin, yPosition, pageWidth - 2 * margin, 12, [200, 210, 255]); // Azul pastel médio
+            addText('HORA', margin + 5, yPosition + 8, { fontSize: 9, style: 'bold', color: [255, 255, 255] });
+            addText('DURACAO', margin + 30, yPosition + 8, { fontSize: 9, style: 'bold', color: [255, 255, 255] });
+            addText('MATERIA', margin + 60, yPosition + 8, { fontSize: 9, style: 'bold', color: [255, 255, 255] });
             
             yPosition += 15;
             
-            // Cores alternadas para as linhas
-            const rowColors = [
-                [102, 126, 234, 0.1], // Primary light
-                [118, 75, 162, 0.1],  // Secondary light
-                [16, 185, 129, 0.1],  // Success light
-                [245, 158, 11, 0.1],  // Warning light
-                [239, 68, 68, 0.1]    // Danger light
+            // Cores pastel suaves para as linhas
+            const pastelColors = [
+                [173, 216, 230], // Azul pastel
+                [221, 160, 221], // Roxo pastel  
+                [144, 238, 144], // Verde pastel
+                [255, 218, 185], // Laranja pastel
+                [255, 182, 193], // Rosa pastel
+                [230, 230, 250], // Lavanda
+                [255, 240, 245], // Rosa bem claro
+                [240, 248, 255]  // Azul alice
             ];
             
             // Listar sessões
             daySessions.forEach((session, index) => {
-                const colorIndex = index % rowColors.length;
-                const rowColor = [
-                    Math.floor(rowColors[colorIndex][0]),
-                    Math.floor(rowColors[colorIndex][1]), 
-                    Math.floor(rowColors[colorIndex][2])
-                ];
+                const colorIndex = index % pastelColors.length;
+                const rowColor = pastelColors[colorIndex];
                 
                 // Verificar se precisa de nova página
-                if (yPosition > doc.internal.pageSize.height - 40) {
+                if (yPosition > doc.internal.pageSize.height - 50) {
                     doc.addPage();
                     yPosition = margin;
                 }
                 
-                // Linha da sessão com cor de fundo
-                const rowHeight = session.notes ? 20 : 12;
-                addColoredRect(margin, yPosition, pageWidth - 2 * margin, rowHeight, [...rowColor, 50]);
+                // Linha da sessão com cor pastel
+                const rowHeight = session.notes ? 25 : 15;
+                addRect(margin, yPosition, pageWidth - 2 * margin, rowHeight, rowColor);
                 
-                // Dados da sessão
-                addColoredText(session.time, margin + 5, yPosition + 8, textColor, 10, 'bold');
-                addColoredText(`${session.duration}min`, margin + 35, yPosition + 8, textColor, 10);
-                addColoredText(session.subject, margin + 75, yPosition + 8, textColor, 10, 'bold');
+                // Dados da sessão com layout otimizado
+                addText(session.time, margin + 5, yPosition + 10, { fontSize: 9, style: 'bold' });
+                addText(`${session.duration}min`, margin + 30, yPosition + 10, { fontSize: 9 });
                 
-                // Observações (se houver)
+                // Matéria com abreviação se necessário
+                const abbreviatedSubject = abbreviateSubject(session.subject);
+                addText(abbreviatedSubject, margin + 60, yPosition + 10, { fontSize: 8, style: 'bold' });
+                
+                // Observações (se houver) em linha separada
                 if (session.notes) {
-                    const maxWidth = pageWidth - margin - 85;
+                    const maxWidth = pageWidth - margin - 70;
                     const lines = doc.splitTextToSize(session.notes, maxWidth);
-                    addColoredText('📝 ', margin + 75, yPosition + 16, primaryColor, 8);
-                    doc.setFontSize(8);
+                    addText('Obs: ', margin + 60, yPosition + 20, { fontSize: 7, color: primaryColor });
+                    doc.setFontSize(7);
                     doc.setTextColor(100, 116, 139);
-                    doc.text(lines, margin + 85, yPosition + 16);
+                    doc.text(lines.slice(0, 2), margin + 75, yPosition + 20); // Máximo 2 linhas
                 }
                 
-                yPosition += rowHeight + 2;
+                yPosition += rowHeight + 3;
             });
             
             // Observações do dia (se houver)
             const dayObservations = observations.filter(obs => obs.date === selectedDate);
             
             if (dayObservations.length > 0) {
-                yPosition += 10;
+                yPosition += 15;
                 
                 // Verificar se precisa de nova página
-                if (yPosition > doc.internal.pageSize.height - 60) {
+                if (yPosition > doc.internal.pageSize.height - 80) {
                     doc.addPage();
                     yPosition = margin;
                 }
                 
-                addColoredText('📝 OBSERVAÇÕES DO DIA', margin, yPosition, secondaryColor, 12, 'bold');
+                addText('OBSERVACOES DO DIA', margin, yPosition, { 
+                    fontSize: 12, 
+                    style: 'bold', 
+                    color: secondaryColor 
+                });
                 yPosition += 15;
                 
                 dayObservations.forEach((obs, index) => {
-                    if (yPosition > doc.internal.pageSize.height - 30) {
+                    if (yPosition > doc.internal.pageSize.height - 40) {
                         doc.addPage();
                         yPosition = margin;
                     }
                     
-                    addColoredRect(margin, yPosition, pageWidth - 2 * margin, 20, [245, 245, 245]);
-                    addColoredText(`• ${obs.subject}:`, margin + 5, yPosition + 8, primaryColor, 10, 'bold');
+                    addRect(margin, yPosition, pageWidth - 2 * margin, 25, [250, 250, 255]);
+                    addText(`${obs.subject}:`, margin + 5, yPosition + 10, { 
+                        fontSize: 9, 
+                        style: 'bold', 
+                        color: primaryColor 
+                    });
                     
-                    const maxWidth = pageWidth - margin - 20;
+                    const maxWidth = pageWidth - margin - 10;
                     const lines = doc.splitTextToSize(obs.text, maxWidth);
-                    doc.setFontSize(9);
+                    doc.setFontSize(8);
                     doc.setTextColor(textColor[0], textColor[1], textColor[2]);
-                    doc.text(lines, margin + 5, yPosition + 15);
+                    doc.text(lines.slice(0, 3), margin + 5, yPosition + 18); // Máximo 3 linhas
                     
-                    yPosition += Math.max(20, lines.length * 5 + 10);
+                    yPosition += 30;
                 });
             }
             
-            // Rodapé
-            const footerY = doc.internal.pageSize.height - 15;
-            doc.setFontSize(8);
-            doc.setTextColor(150, 150, 150);
-            doc.text(`Gerado em ${new Date().toLocaleString('pt-BR')} | Controle de Estudos Avançado`, 
-                pageWidth / 2, footerY, { align: 'center' });
+            // Rodapé com créditos estilosos
+            const footerY = doc.internal.pageSize.height - 20;
+            
+            // Linha separadora sutil
+            doc.setDrawColor(200, 200, 200);
+            doc.setLineWidth(0.5);
+            doc.line(margin, footerY - 5, pageWidth - margin, footerY - 5);
+            
+            // Data de geração
+            addText(`Gerado em ${new Date().toLocaleDateString('pt-BR')}`, 
+                margin, footerY + 2, { 
+                    fontSize: 7, 
+                    color: [120, 120, 120]
+                });
+            
+            // Créditos centralizados e estilosos
+            addText('Desenvolvido por Estevao R✜ with Claude.AI', 
+                pageWidth / 2, footerY + 2, { 
+                    fontSize: 8, 
+                    color: primaryColor, 
+                    style: 'bold',
+                    align: 'center' 
+                });
+            
+            // Versão/subtitle
+            addText('Sistema Avancado de Controle de Estudos', 
+                pageWidth / 2, footerY + 10, { 
+                    fontSize: 6, 
+                    color: [150, 150, 150], 
+                    align: 'center' 
+                });
             
             // Salvar PDF
             const fileName = `relatorio-estudos-${selectedDate}.pdf`;
             doc.save(fileName);
             
-            showToast(`📄 PDF "${fileName}" gerado com sucesso!`, 'success');
+            showToast(`PDF "${fileName}" gerado com sucesso!`, 'success');
         }
 
         function importData() {
