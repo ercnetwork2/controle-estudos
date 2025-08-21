@@ -778,6 +778,58 @@
                     </div>
                 </div>
 
+                <!-- Timer Pomodoro -->
+                <div class="glass-card">
+                    <div class="card-header">
+                        <div class="card-icon">🍅</div>
+                        <h2>Timer Pomodoro</h2>
+                    </div>
+                    
+                    <div id="pomodoro-setup">
+                        <div class="form-group">
+                            <label for="pomodoroSubject">📚 Matéria a Estudar</label>
+                            <input type="text" id="pomodoroSubject" placeholder="Ex: Processo Civil" list="pomodoroSubjectSuggestions">
+                            <datalist id="pomodoroSubjectSuggestions"></datalist>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="pomodoroTopic">📖 Tópico</label>
+                            <input type="text" id="pomodoroTopic" placeholder="O que vai estudar?" />
+                        </div>
+                        
+                        <div style="text-align: center; margin-top: 20px;">
+                            <button class="btn btn-primary" onclick="startPomodoro()">
+                                🍅 Iniciar Pomodoro (25min)
+                            </button>
+                            <button class="btn" onclick="startCustomTimer()">
+                                ⏱️ Timer Personalizado
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div id="pomodoro-running" style="display: none;">
+                        <div style="text-align: center; margin-bottom: 20px;">
+                            <h3 id="pomodoro-status" style="color: var(--primary); margin-bottom: 10px;">🍅 Estudando</h3>
+                            <p id="pomodoro-subject-display" style="font-weight: 600; margin-bottom: 5px;"></p>
+                            <p id="pomodoro-topic-display" style="font-size: 0.9rem; opacity: 0.8;"></p>
+                        </div>
+                        
+                        <div id="pomodoro-timer" style="font-size: 3rem; font-weight: bold; text-align: center; color: var(--primary); margin: 30px 0; text-shadow: 0 2px 10px rgba(102, 126, 234, 0.3);">
+                            25:00
+                        </div>
+                        
+                        <div class="pomodoro-progress">
+                            <div style="background: rgba(102, 126, 234, 0.2); height: 8px; border-radius: 4px; overflow: hidden; margin-bottom: 20px;">
+                                <div id="pomodoro-progress-bar" style="height: 100%; background: var(--gradient); width: 0%; transition: width 1s ease;"></div>
+                            </div>
+                        </div>
+                        
+                        <div style="text-align: center;">
+                            <button id="pomodoro-pause-btn" class="btn" onclick="pausePomodoro()">⏸️ Pausar</button>
+                            <button class="btn btn-secondary" onclick="stopPomodoro()">⏹️ Parar</button>
+                        </div>
+                    </div>
+                </div>
                 <!-- Observações Rápidas -->
                 <div class="glass-card">
                     <div class="card-header">
@@ -800,6 +852,36 @@
                 </div>
             </div>
         </div>
+
+        <!-- Modal Timer Personalizado -->
+        <div id="custom-timer-modal" class="glass-card" style="display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 1000; width: 90%; max-width: 400px; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);">
+            <div class="card-header">
+                <div class="card-icon">⏱️</div>
+                <h2>Timer Personalizado</h2>
+            </div>
+            
+            <div class="form-group">
+                <label for="customMinutes">⏱️ Minutos de Estudo</label>
+                <input type="number" id="customMinutes" min="1" max="120" value="30" class="form-input">
+            </div>
+            
+            <div class="presets" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 15px 0;">
+                <button class="btn btn-small" onclick="setCustomTime(15)">15min</button>
+                <button class="btn btn-small" onclick="setCustomTime(30)">30min</button>
+                <button class="btn btn-small" onclick="setCustomTime(45)">45min</button>
+                <button class="btn btn-small" onclick="setCustomTime(60)">60min</button>
+                <button class="btn btn-small" onclick="setCustomTime(90)">90min</button>
+                <button class="btn btn-small" onclick="setCustomTime(120)">120min</button>
+            </div>
+            
+            <div style="text-align: center; margin-top: 20px;">
+                <button class="btn btn-primary" onclick="confirmCustomTimer()">⏱️ Iniciar Timer</button>
+                <button class="btn btn-secondary" onclick="closeCustomModal()">❌ Cancelar</button>
+            </div>
+        </div>
+
+        <!-- Overlay para modais -->
+        <div id="modal-overlay" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.5); z-index: 999;" onclick="closeCustomModal()"></div>
 
         <!-- Sessões de Estudo -->
         <div class="glass-card">
