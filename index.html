@@ -249,21 +249,25 @@
         }
 
         .btn {
-            background: var(--gradient);
-            color: white;
-            padding: 14px 30px;
+            background: linear-gradient(135deg, #6b7280, #4b5563);
             border: none;
             border-radius: 12px;
+            padding: 14px 20px;
+            color: white;
+            font-size: 14px;
             cursor: pointer;
-            font-size: 16px;
-            font-weight: 600;
-            font-family: inherit;
             transition: all 0.3s ease;
             display: inline-flex;
             align-items: center;
+            justify-content: center;
             gap: 8px;
             text-transform: uppercase;
             letter-spacing: 0.5px;
+            font-family: inherit;
+            font-weight: 600;
+            text-align: center;
+            line-height: 1.2;
+            min-height: 50px;
         }
 
         .btn:hover {
@@ -797,12 +801,12 @@
                             <input type="text" id="pomodoroTopic" placeholder="O que vai estudar?" />
                         </div>
                         
-                        <div style="text-align: center; margin-top: 20px;">
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-top: 20px;">
                             <button class="btn btn-primary" onclick="startPomodoro()">
-                                🍅 Iniciar Pomodoro (25min)
+                                🍅 Pomodoro<br><small style="font-size: 0.8rem; opacity: 0.9;">(25min)</small>
                             </button>
                             <button class="btn" onclick="startCustomTimer()">
-                                ⏱️ Timer Personalizado
+                                ⏱️ Personalizado<br><small style="font-size: 0.8rem; opacity: 0.9;">(customizar)</small>
                             </button>
                         </div>
                     </div>
@@ -829,26 +833,6 @@
                             <button class="btn btn-secondary" onclick="stopPomodoro()">⏹️ Parar</button>
                         </div>
                     </div>
-                </div>
-                <!-- Observações Rápidas -->
-                <div class="glass-card">
-                    <div class="card-header">
-                        <div class="card-icon">💡</div>
-                        <h2>Observação Rápida</h2>
-                    </div>
-                    
-                    <div class="form-group">
-                        <label for="quickObsSubject">Matéria</label>
-                        <input type="text" id="quickObsSubject" placeholder="Ex: Processo Civil" list="obsSubjectSuggestions">
-                        <datalist id="obsSubjectSuggestions"></datalist>
-                    </div>
-                    <div class="form-group">
-                        <label for="quickObsText">Observação</label>
-                        <textarea id="quickObsText" rows="3" placeholder="Observação importante..."></textarea>
-                    </div>
-                    <button class="btn" onclick="addQuickObservation()">
-                        💡 Adicionar
-                    </button>
                 </div>
             </div>
         </div>
@@ -925,17 +909,59 @@
             </div>
         </div>
 
-        <!-- Observações Gerais -->
+        <!-- Observações Gerais com Formulário Integrado -->
         <div class="glass-card">
             <div class="card-header">
                 <div class="card-icon">📝</div>
                 <h2>Observações Gerais</h2>
             </div>
             
-            <div id="observationsList">
-                <div class="empty-state">
-                    <div class="empty-state-icon">💭</div>
-                    <p>Nenhuma observação registrada ainda.</p>
+            <!-- Formulário para nova observação -->
+            <div class="form-section" style="background: rgba(102, 126, 234, 0.05); margin-bottom: 25px; padding: 20px;">
+                <h3 style="margin-bottom: 15px; color: var(--primary); font-size: 1.1rem;">💡 Nova Observação</h3>
+                
+                <div class="form-grid" style="grid-template-columns: 1fr 1fr; margin-bottom: 15px;">
+                    <div class="form-group">
+                        <label for="quickObsSubject">📚 Matéria</label>
+                        <input type="text" id="quickObsSubject" placeholder="Ex: Processo Civil" list="obsSubjectSuggestions" class="form-input">
+                        <datalist id="obsSubjectSuggestions"></datalist>
+                    </div>
+                    <div class="form-group">
+                        <label for="quickObsDate">📅 Data</label>
+                        <input type="date" id="quickObsDate" class="form-input">
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label for="quickObsText">📝 Observação</label>
+                    <textarea id="quickObsText" rows="3" placeholder="Observação importante sobre a matéria..." class="form-input"></textarea>
+                </div>
+                
+                <div style="text-align: center;">
+                    <button class="btn btn-primary" onclick="addQuickObservation()">
+                        💡 Adicionar Observação
+                    </button>
+                </div>
+            </div>
+            
+            <!-- Lista de observações -->
+            <div>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                    <h3 style="color: var(--dark); font-size: 1.1rem;">📋 Últimas Observações</h3>
+                    <small style="color: #666;">Mostrando 5 mais recentes</small>
+                </div>
+                
+                <div id="observationsList" style="max-height: 400px; overflow-y: auto;">
+                    <div class="empty-state">
+                        <div class="empty-state-icon">💭</div>
+                        <p>Nenhuma observação registrada ainda.</p>
+                    </div>
+                </div>
+                
+                <div id="observations-show-more" style="text-align: center; margin-top: 15px; display: none;">
+                    <button class="btn btn-secondary btn-small" onclick="toggleAllObservations()">
+                        📜 Ver Todas as Observações
+                    </button>
                 </div>
             </div>
         </div>
@@ -983,41 +1009,122 @@
             cycles: 0
         };
 
-        // Som de notificação com 5 beeps
+        // Estado do som contínuo
+        let continuousAudio = {
+            isPlaying: false,
+            audioContext: null,
+            oscillators: [],
+            stopCallback: null
+        };
+
+        // Som de notificação contínuo com 5 beeps que se repetem
         function playNotificationSound() {
-            console.log('Tocando som de notificação...');
+            console.log('Tocando som de notificação contínuo...');
+            stopContinuousSound(); // Para qualquer som anterior
             
-            // Função para criar um beep
-            function createBeep(frequency, duration, delay) {
-                setTimeout(() => {
-                    try {
-                        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                        const oscillator = audioContext.createOscillator();
-                        const gainNode = audioContext.createGain();
-                        
-                        oscillator.connect(gainNode);
-                        gainNode.connect(audioContext.destination);
-                        
-                        oscillator.frequency.value = frequency;
-                        oscillator.type = 'sine';
-                        
-                        gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
-                        gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + duration);
-                        
-                        oscillator.start();
-                        oscillator.stop(audioContext.currentTime + duration);
-                    } catch (e) {
-                        console.log('Som não disponível:', e);
+            continuousAudio.isPlaying = true;
+            
+            function playContinuousBeeps() {
+                if (!continuousAudio.isPlaying) return;
+                
+                try {
+                    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    continuousAudio.audioContext = audioContext;
+                    
+                    // Função para criar um beep
+                    function createBeep(frequency, duration, delay) {
+                        setTimeout(() => {
+                            if (!continuousAudio.isPlaying) return;
+                            
+                            const oscillator = audioContext.createOscillator();
+                            const gainNode = audioContext.createGain();
+                            
+                            oscillator.connect(gainNode);
+                            gainNode.connect(audioContext.destination);
+                            
+                            oscillator.frequency.value = frequency;
+                            oscillator.type = 'sine';
+                            
+                            gainNode.gain.setValueAtTime(0.4, audioContext.currentTime);
+                            gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + duration);
+                            
+                            oscillator.start();
+                            oscillator.stop(audioContext.currentTime + duration);
+                            
+                            // Guardar referência para poder parar depois
+                            continuousAudio.oscillators.push(oscillator);
+                        }, delay);
                     }
-                }, delay);
+                    
+                    // 5 beeps com frequências diferentes
+                    createBeep(800, 0.3, 0);     // Beep 1
+                    createBeep(900, 0.3, 400);   // Beep 2  
+                    createBeep(1000, 0.3, 800);  // Beep 3
+                    createBeep(1100, 0.3, 1200); // Beep 4
+                    createBeep(1200, 0.4, 1600); // Beep 5 (mais longo)
+                    
+                    // Repetir a sequência a cada 3 segundos
+                    setTimeout(() => {
+                        if (continuousAudio.isPlaying) {
+                            playContinuousBeeps();
+                        }
+                    }, 3000);
+                    
+                } catch (e) {
+                    console.log('Som não disponível:', e);
+                    continuousAudio.isPlaying = false;
+                }
             }
             
-            // 5 beeps com frequências diferentes
-            createBeep(800, 0.3, 0);     // Beep 1
-            createBeep(900, 0.3, 400);   // Beep 2  
-            createBeep(1000, 0.3, 800);  // Beep 3
-            createBeep(1100, 0.3, 1200); // Beep 4
-            createBeep(1200, 0.4, 1600); // Beep 5 (mais longo)
+            playContinuousBeeps();
+        }
+
+        // Parar som contínuo
+        function stopContinuousSound() {
+            console.log('Parando som contínuo...');
+            continuousAudio.isPlaying = false;
+            
+            // Parar todos os oscillators
+            continuousAudio.oscillators.forEach(osc => {
+                try {
+                    osc.stop();
+                } catch (e) {
+                    // Oscillator já pode ter parado
+                }
+            });
+            
+            // Fechar contexto de áudio se existir
+            if (continuousAudio.audioContext) {
+                try {
+                    continuousAudio.audioContext.close();
+                } catch (e) {
+                    // Contexto já pode ter sido fechado
+                }
+            }
+            
+            // Limpar arrays
+            continuousAudio.oscillators = [];
+            continuousAudio.audioContext = null;
+        }
+
+        // Função personalizada de confirmação com som contínuo
+        function confirmWithSound(message, onConfirm, onCancel) {
+            // Iniciar som contínuo
+            playNotificationSound();
+            
+            // Mostrar confirmação
+            const result = confirm(message);
+            
+            // Parar som independente da resposta
+            stopContinuousSound();
+            
+            if (result && onConfirm) {
+                onConfirm();
+            } else if (!result && onCancel) {
+                onCancel();
+            }
+            
+            return result;
         }
 
         // Iniciar Pomodoro
@@ -1208,9 +1315,8 @@
 
         // Timer finalizado
         function pomodoroTimerFinished() {
-            console.log('Timer finalizado! Tocando som...');
+            console.log('Timer finalizado! Tocando som contínuo...');
             clearInterval(pomodoroState.interval);
-            playNotificationSound();
             
             if (!pomodoroState.isBreak) {
                 // Fim do período de estudo
@@ -1219,14 +1325,20 @@
                 console.log('Registrando sessão de', studyMinutes, 'minutos');
                 
                 // Registrar sessão de estudo
+                const now = new Date();
                 const session = {
                     id: Date.now(),
-                    date: new Date().toISOString().split('T')[0],
-                    time: new Date().toTimeString().slice(0, 5),
+                    date: now.getFullYear() + '-' + 
+                          (now.getMonth() + 1).toString().padStart(2, '0') + '-' + 
+                          now.getDate().toString().padStart(2, '0'),
+                    time: now.getHours().toString().padStart(2, '0') + ':' + 
+                          now.getMinutes().toString().padStart(2, '0'),
                     duration: studyMinutes,
                     subject: pomodoroState.currentSubject,
                     notes: `🍅 Pomodoro: ${pomodoroState.currentTopic}`,
-                    dayOfWeek: getDayOfWeek(new Date().toISOString().split('T')[0]),
+                    dayOfWeek: getDayOfWeek(now.getFullYear() + '-' + 
+                              (now.getMonth() + 1).toString().padStart(2, '0') + '-' + 
+                              now.getDate().toString().padStart(2, '0')),
                     timestamp: Date.now()
                 };
                 
@@ -1243,26 +1355,32 @@
                 
                 showToast(`🎉 Sessão completa! +${studyMinutes} minutos registrados!`, 'success');
                 
-                // Iniciar pausa de 5 minutos
+                // Iniciar pausa de 5 minutos com som contínuo
                 setTimeout(() => {
-                    if (confirm('☕ Sessão de estudo completa!\n\nDeseja iniciar uma pausa de 5 minutos?')) {
-                        pomodoroState = {
-                            isRunning: true,
-                            isPaused: false,
-                            isBreak: true,
-                            timeLeft: 5 * 60,
-                            totalTime: 5 * 60,
-                            currentSubject: pomodoroState.currentSubject,
-                            currentTopic: 'Pausa',
-                            interval: null,
-                            cycles: pomodoroState.cycles
-                        };
-                        
-                        startPomodoroInterval();
-                        updatePomodoroDisplay();
-                    } else {
-                        resetPomodoro();
-                    }
+                    const confirmed = confirmWithSound(
+                        '🎉 Sessão de estudo completa!\n\n⏰ ' + studyMinutes + ' minutos registrados!\n\n☕ Deseja iniciar uma pausa de 5 minutos?',
+                        () => {
+                            // Confirmar pausa
+                            pomodoroState = {
+                                isRunning: true,
+                                isPaused: false,
+                                isBreak: true,
+                                timeLeft: 5 * 60,
+                                totalTime: 5 * 60,
+                                currentSubject: pomodoroState.currentSubject,
+                                currentTopic: 'Pausa',
+                                interval: null,
+                                cycles: pomodoroState.cycles
+                            };
+                            
+                            startPomodoroInterval();
+                            updatePomodoroDisplay();
+                        },
+                        () => {
+                            // Cancelar pausa
+                            resetPomodoro();
+                        }
+                    );
                 }, 1000);
                 
             } else {
@@ -1270,24 +1388,30 @@
                 showToast('☕ Pausa terminada! Pronto para outra sessão?', 'success');
                 
                 setTimeout(() => {
-                    if (confirm('⏰ Pausa terminada!\n\nDeseja iniciar outra sessão de estudo?')) {
-                        pomodoroState = {
-                            isRunning: true,
-                            isPaused: false,
-                            isBreak: false,
-                            timeLeft: 25 * 60,
-                            totalTime: 25 * 60,
-                            currentSubject: pomodoroState.currentSubject,
-                            currentTopic: pomodoroState.currentTopic,
-                            interval: null,
-                            cycles: pomodoroState.cycles
-                        };
-                        
-                        startPomodoroInterval();
-                        updatePomodoroDisplay();
-                    } else {
-                        resetPomodoro();
-                    }
+                    const confirmed = confirmWithSound(
+                        '☕ Pausa terminada!\n\n💪 Deseja iniciar outra sessão de estudo de 25 minutos?',
+                        () => {
+                            // Confirmar nova sessão
+                            pomodoroState = {
+                                isRunning: true,
+                                isPaused: false,
+                                isBreak: false,
+                                timeLeft: 25 * 60,
+                                totalTime: 25 * 60,
+                                currentSubject: pomodoroState.currentSubject,
+                                currentTopic: pomodoroState.currentTopic,
+                                interval: null,
+                                cycles: pomodoroState.cycles
+                            };
+                            
+                            startPomodoroInterval();
+                            updatePomodoroDisplay();
+                        },
+                        () => {
+                            // Finalizar Pomodoro
+                            resetPomodoro();
+                        }
+                    );
                 }, 1000);
             }
         }
@@ -1362,12 +1486,17 @@
         };
 
         function setTodayAsDefault() {
-            const today = new Date().toISOString().split('T')[0];
+            const now = new Date();
+            const today = now.getFullYear() + '-' + 
+                         (now.getMonth() + 1).toString().padStart(2, '0') + '-' + 
+                         now.getDate().toString().padStart(2, '0');
+            
             document.getElementById('sessionDate').value = today;
             document.getElementById('analyticDate').value = today;
+            document.getElementById('quickObsDate').value = today; // Adicionar para observações
             
-            const now = new Date();
-            const timeString = now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0');
+            const timeString = now.getHours().toString().padStart(2, '0') + ':' + 
+                              now.getMinutes().toString().padStart(2, '0');
             document.getElementById('sessionTime').value = timeString;
             
             // Configurar mês e ano atuais
@@ -1377,7 +1506,10 @@
         }
 
         function setTodayAsPDFDefault() {
-            const today = new Date().toISOString().split('T')[0];
+            const now = new Date();
+            const today = now.getFullYear() + '-' + 
+                         (now.getMonth() + 1).toString().padStart(2, '0') + '-' + 
+                         now.getDate().toString().padStart(2, '0');
             document.getElementById('pdfExportDate').value = today;
         }
 
@@ -1483,10 +1615,16 @@
         }
 
         function deleteObservation(id) {
-            if (confirm('🗑️ Tem certeza que deseja excluir esta observação?')) {
-                observations = observations.filter(obs => obs.id !== id);
+            const obs = observations.find(o => o.id === id);
+            if (!obs) return;
+            
+            const date = formatDate(obs.date);
+            
+            if (confirm(`❌ Excluir esta observação?\n\n📚 ${obs.subject}\n📅 ${date}\n📝 ${obs.text.substring(0, 50)}${obs.text.length > 50 ? '...' : ''}`)) {
+                observations = observations.filter(o => o.id !== id);
                 saveData();
                 renderObservations();
+                updateSubjectSuggestions();
                 showToast('🗑️ Observação excluída com sucesso!', 'success');
             }
         }
@@ -1606,8 +1744,11 @@
             }).join('');
         }
 
+        let showingAllObservations = false;
+
         function renderObservations() {
             const container = document.getElementById('observationsList');
+            const showMoreBtn = document.getElementById('observations-show-more');
             
             if (observations.length === 0) {
                 container.innerHTML = `
@@ -1616,21 +1757,41 @@
                         <p>Nenhuma observação registrada ainda.</p>
                     </div>
                 `;
+                showMoreBtn.style.display = 'none';
                 return;
             }
 
-            container.innerHTML = observations.map(obs => `
+            // Mostrar apenas as 5 mais recentes ou todas
+            const observationsToShow = showingAllObservations ? observations : observations.slice(0, 5);
+            
+            container.innerHTML = observationsToShow.map(obs => `
                 <div class="observation-item">
                     <div class="observation-header">
                         <span class="observation-date">${formatDate(obs.date)}</span>
                         <span class="observation-subject">${obs.subject}</span>
-                        <button class="btn btn-danger btn-small" onclick="deleteObservation(${obs.id})">
+                        <button class="btn btn-danger btn-small" onclick="deleteObservation(${obs.id})" title="Excluir observação">
                             🗑️
                         </button>
                     </div>
                     <div class="observation-text">${obs.text}</div>
                 </div>
             `).join('');
+            
+            // Mostrar botão "Ver mais" se houver mais de 5 observações
+            if (observations.length > 5) {
+                showMoreBtn.style.display = 'block';
+                const button = showMoreBtn.querySelector('button');
+                button.textContent = showingAllObservations ? 
+                    '📋 Ver Apenas as 5 Mais Recentes' : 
+                    `📜 Ver Todas as ${observations.length} Observações`;
+            } else {
+                showMoreBtn.style.display = 'none';
+            }
+        }
+
+        function toggleAllObservations() {
+            showingAllObservations = !showingAllObservations;
+            renderObservations();
         }
 
         function updateSubjectFilter() {
