@@ -970,7 +970,379 @@
     <div id="toast" class="toast"></div>
 
     <script>
-        // Dados armazenados
+        // Estado do Pomodoro
+        let pomodoroState = {
+            isRunning: false,
+            isPaused: false,
+            isBreak: false,
+            timeLeft: 0,
+            totalTime: 0,
+            currentSubject: '',
+            currentTopic: '',
+            interval: null,
+            cycles: 0
+        };
+
+        // Som de notificação com 5 beeps
+        function playNotificationSound() {
+            console.log('Tocando som de notificação...');
+            
+            // Função para criar um beep
+            function createBeep(frequency, duration, delay) {
+                setTimeout(() => {
+                    try {
+                        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                        const oscillator = audioContext.createOscillator();
+                        const gainNode = audioContext.createGain();
+                        
+                        oscillator.connect(gainNode);
+                        gainNode.connect(audioContext.destination);
+                        
+                        oscillator.frequency.value = frequency;
+                        oscillator.type = 'sine';
+                        
+                        gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+                        gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + duration);
+                        
+                        oscillator.start();
+                        oscillator.stop(audioContext.currentTime + duration);
+                    } catch (e) {
+                        console.log('Som não disponível:', e);
+                    }
+                }, delay);
+            }
+            
+            // 5 beeps com frequências diferentes
+            createBeep(800, 0.3, 0);     // Beep 1
+            createBeep(900, 0.3, 400);   // Beep 2  
+            createBeep(1000, 0.3, 800);  // Beep 3
+            createBeep(1100, 0.3, 1200); // Beep 4
+            createBeep(1200, 0.4, 1600); // Beep 5 (mais longo)
+        }
+
+        // Iniciar Pomodoro
+        function startPomodoro() {
+            console.log('Iniciando Pomodoro...');
+            
+            const subject = document.getElementById('pomodoroSubject').value.trim();
+            const topic = document.getElementById('pomodoroTopic').value.trim();
+            
+            console.log('Matéria:', subject, 'Tópico:', topic);
+            
+            if (!subject || !topic) {
+                showToast('⚠️ Por favor, preencha a matéria e o tópico!', 'warning');
+                return;
+            }
+            
+            pomodoroState = {
+                isRunning: true,
+                isPaused: false,
+                isBreak: false,
+                timeLeft: 25 * 60, // 25 minutos em segundos
+                totalTime: 25 * 60,
+                currentSubject: subject,
+                currentTopic: topic,
+                interval: null,
+                cycles: 0
+            };
+            
+            console.log('Estado do Pomodoro:', pomodoroState);
+            
+            showPomodoroTimer();
+            startPomodoroInterval();
+            showToast('🍅 Pomodoro iniciado! Foque nos estudos!', 'success');
+        }
+
+        // Timer personalizado
+        function startCustomTimer() {
+            console.log('Iniciando Timer Personalizado...');
+            
+            const subject = document.getElementById('pomodoroSubject').value.trim();
+            const topic = document.getElementById('pomodoroTopic').value.trim();
+            
+            if (!subject || !topic) {
+                showToast('⚠️ Por favor, preencha a matéria e o tópico!', 'warning');
+                return;
+            }
+            
+            // Salvar matéria e tópico para usar no modal
+            pomodoroState.currentSubject = subject;
+            pomodoroState.currentTopic = topic;
+            
+            // Mostrar modal
+            document.getElementById('modal-overlay').style.display = 'block';
+            document.getElementById('custom-timer-modal').style.display = 'block';
+        }
+
+        function setCustomTime(minutes) {
+            document.getElementById('customMinutes').value = minutes;
+        }
+
+        function confirmCustomTimer() {
+            const minutes = parseInt(document.getElementById('customMinutes').value);
+            
+            if (!minutes || minutes < 1 || minutes > 120) {
+                showToast('⚠️ Escolha entre 1 e 120 minutos!', 'warning');
+                return;
+            }
+            
+            pomodoroState = {
+                isRunning: true,
+                isPaused: false,
+                isBreak: false,
+                timeLeft: minutes * 60,
+                totalTime: minutes * 60,
+                currentSubject: pomodoroState.currentSubject,
+                currentTopic: pomodoroState.currentTopic,
+                interval: null,
+                cycles: 0
+            };
+            
+            closeCustomModal();
+            showPomodoroTimer();
+            startPomodoroInterval();
+            showToast(`⏱️ Timer de ${minutes} minutos iniciado!`, 'success');
+        }
+
+        function closeCustomModal() {
+            document.getElementById('modal-overlay').style.display = 'none';
+            document.getElementById('custom-timer-modal').style.display = 'none';
+        }
+
+        // Mostrar interface do timer
+        function showPomodoroTimer() {
+            console.log('Mostrando interface do timer...');
+            
+            const setupElement = document.getElementById('pomodoro-setup');
+            const runningElement = document.getElementById('pomodoro-running');
+            
+            if (setupElement && runningElement) {
+                setupElement.style.display = 'none';
+                runningElement.style.display = 'block';
+                
+                // Atualizar informações
+                const subjectDisplay = document.getElementById('pomodoro-subject-display');
+                const topicDisplay = document.getElementById('pomodoro-topic-display');
+                
+                if (subjectDisplay) subjectDisplay.textContent = pomodoroState.currentSubject;
+                if (topicDisplay) topicDisplay.textContent = pomodoroState.currentTopic;
+                
+                updatePomodoroDisplay();
+                console.log('Interface do timer configurada!');
+            } else {
+                console.error('Elementos do timer não encontrados!');
+            }
+        }
+
+        // Ocultar interface do timer
+        function hidePomodoroTimer() {
+            console.log('Ocultando interface do timer...');
+            
+            const setupElement = document.getElementById('pomodoro-setup');
+            const runningElement = document.getElementById('pomodoro-running');
+            
+            if (setupElement && runningElement) {
+                setupElement.style.display = 'block';
+                runningElement.style.display = 'none';
+                
+                // Limpar campos
+                const subjectInput = document.getElementById('pomodoroSubject');
+                const topicInput = document.getElementById('pomodoroTopic');
+                
+                if (subjectInput) subjectInput.value = '';
+                if (topicInput) topicInput.value = '';
+            }
+        }
+
+        // Iniciar intervalo do timer
+        function startPomodoroInterval() {
+            console.log('Iniciando intervalo do timer...');
+            
+            if (pomodoroState.interval) {
+                clearInterval(pomodoroState.interval);
+            }
+            
+            pomodoroState.interval = setInterval(() => {
+                if (pomodoroState.timeLeft > 0) {
+                    pomodoroState.timeLeft--;
+                    updatePomodoroDisplay();
+                } else {
+                    console.log('Timer finalizado!');
+                    pomodoroTimerFinished();
+                }
+            }, 1000);
+            
+            console.log('Intervalo iniciado!');
+        }
+
+        // Atualizar display do timer
+        function updatePomodoroDisplay() {
+            const minutes = Math.floor(pomodoroState.timeLeft / 60);
+            const seconds = pomodoroState.timeLeft % 60;
+            
+            const timerElement = document.getElementById('pomodoro-timer');
+            if (timerElement) {
+                timerElement.textContent = 
+                    `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+            }
+            
+            // Atualizar barra de progresso
+            const progressBar = document.getElementById('pomodoro-progress-bar');
+            if (progressBar) {
+                const progress = ((pomodoroState.totalTime - pomodoroState.timeLeft) / pomodoroState.totalTime) * 100;
+                progressBar.style.width = progress + '%';
+            }
+            
+            // Atualizar status
+            const statusElement = document.getElementById('pomodoro-status');
+            if (statusElement) {
+                if (pomodoroState.isBreak) {
+                    statusElement.textContent = '☕ Pausa - Descanse!';
+                    statusElement.style.color = '#10b981';
+                } else {
+                    statusElement.textContent = '🍅 Estudando';
+                    statusElement.style.color = 'var(--primary)';
+                }
+            }
+        }
+
+        // Timer finalizado
+        function pomodoroTimerFinished() {
+            console.log('Timer finalizado! Tocando som...');
+            clearInterval(pomodoroState.interval);
+            playNotificationSound();
+            
+            if (!pomodoroState.isBreak) {
+                // Fim do período de estudo
+                const studyMinutes = Math.floor(pomodoroState.totalTime / 60);
+                
+                console.log('Registrando sessão de', studyMinutes, 'minutos');
+                
+                // Registrar sessão de estudo
+                const session = {
+                    id: Date.now(),
+                    date: new Date().toISOString().split('T')[0],
+                    time: new Date().toTimeString().slice(0, 5),
+                    duration: studyMinutes,
+                    subject: pomodoroState.currentSubject,
+                    notes: `🍅 Pomodoro: ${pomodoroState.currentTopic}`,
+                    dayOfWeek: getDayOfWeek(new Date().toISOString().split('T')[0]),
+                    timestamp: Date.now()
+                };
+                
+                studySessions.push(session);
+                studySessions.sort((a, b) => b.timestamp - a.timestamp);
+                
+                saveData();
+                updateStats();
+                updateAnalytics();
+                renderSessions();
+                updateSubjectSuggestions();
+                
+                pomodoroState.cycles++;
+                
+                showToast(`🎉 Sessão completa! +${studyMinutes} minutos registrados!`, 'success');
+                
+                // Iniciar pausa de 5 minutos
+                setTimeout(() => {
+                    if (confirm('☕ Sessão de estudo completa!\n\nDeseja iniciar uma pausa de 5 minutos?')) {
+                        pomodoroState = {
+                            isRunning: true,
+                            isPaused: false,
+                            isBreak: true,
+                            timeLeft: 5 * 60,
+                            totalTime: 5 * 60,
+                            currentSubject: pomodoroState.currentSubject,
+                            currentTopic: 'Pausa',
+                            interval: null,
+                            cycles: pomodoroState.cycles
+                        };
+                        
+                        startPomodoroInterval();
+                        updatePomodoroDisplay();
+                    } else {
+                        resetPomodoro();
+                    }
+                }, 1000);
+                
+            } else {
+                // Fim da pausa
+                showToast('☕ Pausa terminada! Pronto para outra sessão?', 'success');
+                
+                setTimeout(() => {
+                    if (confirm('⏰ Pausa terminada!\n\nDeseja iniciar outra sessão de estudo?')) {
+                        pomodoroState = {
+                            isRunning: true,
+                            isPaused: false,
+                            isBreak: false,
+                            timeLeft: 25 * 60,
+                            totalTime: 25 * 60,
+                            currentSubject: pomodoroState.currentSubject,
+                            currentTopic: pomodoroState.currentTopic,
+                            interval: null,
+                            cycles: pomodoroState.cycles
+                        };
+                        
+                        startPomodoroInterval();
+                        updatePomodoroDisplay();
+                    } else {
+                        resetPomodoro();
+                    }
+                }, 1000);
+            }
+        }
+
+        // Pausar/Retomar Pomodoro
+        function pausePomodoro() {
+            console.log('Pausar/Retomar Pomodoro');
+            
+            if (pomodoroState.isRunning && !pomodoroState.isPaused) {
+                // Pausar
+                clearInterval(pomodoroState.interval);
+                pomodoroState.isPaused = true;
+                const pauseBtn = document.getElementById('pomodoro-pause-btn');
+                if (pauseBtn) pauseBtn.textContent = '▶️ Retomar';
+                showToast('⏸️ Timer pausado', 'warning');
+            } else if (pomodoroState.isPaused) {
+                // Retomar
+                pomodoroState.isPaused = false;
+                startPomodoroInterval();
+                const pauseBtn = document.getElementById('pomodoro-pause-btn');
+                if (pauseBtn) pauseBtn.textContent = '⏸️ Pausar';
+                showToast('▶️ Timer retomado', 'success');
+            }
+        }
+
+        // Parar Pomodoro
+        function stopPomodoro() {
+            if (confirm('⏹️ Tem certeza que deseja parar o timer?')) {
+                resetPomodoro();
+                showToast('⏹️ Timer interrompido', 'warning');
+            }
+        }
+
+        // Resetar Pomodoro
+        function resetPomodoro() {
+            console.log('Resetando Pomodoro...');
+            
+            clearInterval(pomodoroState.interval);
+            pomodoroState = {
+                isRunning: false,
+                isPaused: false,
+                isBreak: false,
+                timeLeft: 0,
+                totalTime: 0,
+                currentSubject: '',
+                currentTopic: '',
+                interval: null,
+                cycles: 0
+            };
+            
+            const pauseBtn = document.getElementById('pomodoro-pause-btn');
+            if (pauseBtn) pauseBtn.textContent = '⏸️ Pausar';
+            
+            hidePomodoroTimer();
+        }
         let studySessions = [];
         let observations = [];
         let currentView = 'all';
@@ -1281,6 +1653,12 @@
             // Atualizar sugestões para observações
             const obsSuggestions = document.getElementById('obsSubjectSuggestions');
             obsSuggestions.innerHTML = subjects.map(subject => 
+                `<option value="${subject}">`
+            ).join('');
+            
+            // Atualizar sugestões para Pomodoro
+            const pomodoroSuggestions = document.getElementById('pomodoroSubjectSuggestions');
+            pomodoroSuggestions.innerHTML = subjects.map(subject => 
                 `<option value="${subject}">`
             ).join('');
         }
